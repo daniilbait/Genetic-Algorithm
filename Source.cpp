@@ -1,0 +1,662 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <sstream>
+#include "CImg.h"
+#include <iomanip>
+using namespace std;
+using namespace cimg_library;
+//
+struct Consts
+{
+    inline static int x_value_number = 5;
+    inline static int chromosome_length = ceil(log2(x_value_number));
+    inline static int population_size = 10;
+    inline static double crossing_over_probability = 1.0;
+    inline static double mutation_probability = 1.0;
+    inline static int generation_number = 50;
+    inline static int selection_pair = 1;
+    inline static int descedant_left = 1;
+};
+struct Specimen
+{
+    vector<short> chromosome = vector<short>(Consts::chromosome_length, 0);
+    int value = 0;
+};
+//Функция построения графика
+void createPiecewiseCurve(const vector<int>& number)
+{
+    if (number.empty()) return;
+
+    // Фиксированные границы для X – номера поколений
+    long long x_min = 1;
+    long long x_max = number.size();   // количество точек соответствует числу поколений
+
+    // Границы для Y
+    double y_min = 0;
+    double y_max = *max_element(number.begin(), number.end());
+    y_max *= 1.1;   // оставляем небольшой запас сверху
+
+    // Создаём изображение
+    CImg<unsigned char> image(1200, 800, 1, 3, 255);
+    const unsigned char black[] = { 0, 0, 0 };
+    const unsigned char blue[] = { 0, 0, 255 };
+    const unsigned char red[] = { 255, 0, 0 };
+    const unsigned char gray[] = { 200, 200, 200 };
+
+    // Отступы
+    int left_margin = 150;
+    int bottom_margin = 100;
+    int top_margin = 60;
+    int right_margin = 50;
+
+    int graph_width = image.width() - left_margin - right_margin;
+    int graph_height = image.height() - bottom_margin - top_margin;
+
+    // Функции преобразования координат
+    auto transform_x = [&](long long x) -> int {
+        double ratio = static_cast<double>(x - x_min) / (x_max - x_min);
+        return left_margin + static_cast<int>(ratio * graph_width);
+        };
+
+    auto transform_y = [&](double y) -> int {
+        return image.height() - bottom_margin - static_cast<int>((y - y_min) * graph_height / (y_max - y_min));
+        };
+
+    // Рисуем оси
+    image.draw_line(left_margin, image.height() - bottom_margin,
+        image.width() - right_margin, image.height() - bottom_margin, black);
+    image.draw_line(left_margin, image.height() - bottom_margin,
+        left_margin, top_margin, black);
+
+    // Подписи осей
+    image.draw_text(image.width() / 2 - 80, image.height() - 40, "Generation number", black, 0, 1, 18);
+    image.draw_text(40, image.height() / 2 - 50, "", black, 0, 1, 18);
+
+    // Деления и подписи на оси X (целые номера поколений)
+    int x_ticks = 14;
+    for (int i = 0; i <= x_ticks; i++) {
+        long long x_val = x_min + i * (x_max - x_min) / x_ticks;
+        int x_pixel = transform_x(x_val);
+
+        image.draw_line(x_pixel, image.height() - bottom_margin,
+            x_pixel, image.height() - bottom_margin + 5, black);
+
+        stringstream ss;
+        ss << x_val;   // целое число без десятичных знаков
+        image.draw_text(x_pixel - 40, image.height() - bottom_margin + 15,
+            ss.str().c_str(), black, 0, 1, 12);
+
+        image.draw_line(x_pixel, image.height() - bottom_margin,
+            x_pixel, top_margin, gray);
+    }
+
+    // Деления и подписи на оси Y (приводим к целому для отображения)
+    int y_ticks = 10;
+    for (int i = 0; i <= y_ticks; i++) {
+        double y_val = y_min + i * (y_max - y_min) / y_ticks;
+        int y_pixel = transform_y(y_val);
+
+        image.draw_line(left_margin, y_pixel, left_margin - 5, y_pixel, black);
+
+        stringstream ss;
+        ss << static_cast<int>(y_val);   // отбрасываем десятичную часть
+        image.draw_text(left_margin - 145, y_pixel - 8,
+            ss.str().c_str(), black, 0, 1, 12);
+
+        image.draw_line(left_margin, y_pixel, image.width() - right_margin, y_pixel, gray);
+    }
+
+    // Рисуем точки: все кроме последней – синие, последняя – красная и крупнее
+    for (size_t i = 0; i < number.size(); i++) {
+        int x = transform_x(i + 1);                     // номер поколения = индекс + 1
+        int y = transform_y(number[i]);
+
+        if (i == number.size() - 1) {
+            // последняя точка красная, радиус 7
+            image.draw_circle(x, y, 7, red);
+            image.draw_circle(x, y, 7, red, 1.0f, ~0U);
+        }
+        else {
+            // синие точки, радиус 5
+            image.draw_circle(x, y, 5, blue);
+            image.draw_circle(x, y, 5, blue, 1.0f, ~0U);
+        }
+    }
+
+    /* Закомментированный код соединения линий
+    for (size_t i = 0; i < number.size() - 1; i++) {
+        int x1 = transform_x(i + 1);
+        int y1 = transform_y(number[i]);
+        int x2 = transform_x(i + 2);
+        int y2 = transform_y(number[i + 1]);
+        image.draw_line(x1, y1, x2, y2, blue, 2.0f);
+    }
+    */
+
+    // Заголовок
+    image.draw_text(image.width() / 2 - 150, 10, "The value of the descendant function", black, 0, 1, 20);
+
+    // Сохраняем
+    image.save("genetic_algorithm_function_values.bmp");
+    cout << "График сохранен в файл genetic_algorithm_function_values.bmp" << endl;
+}
+//Значение целевой функции
+int Function(int x)
+{//f(x)=2*x^4+12, x in [0,1,2,3,4]
+	return 2 * pow(x, 4) + 12;
+}
+//Функция ввода начальных значений
+void SetParams()
+{
+    int choice;
+    string input;
+    // population_size
+    cout << "Будете ли вводить значение размера популяции (1 - да, 2 - нет)?\n- ";
+    cin >> choice;
+    cin.ignore(10000, '\n');
+    if (choice == 1)
+    {
+        do
+        {
+            cout << "Введите размер популяции [10;100]:\n- ";
+            getline(cin, input);
+            Consts::population_size = stoi(input);
+            if (Consts::population_size < 10 || Consts::population_size > 100)
+                cout << "Было введено неверное значение (должно быть в диапазоне [10;100])\n";
+        } while (Consts::population_size < 10 || Consts::population_size > 100);
+    }
+    else cout << "Оставлено значение по умолчанию: " << Consts::population_size << "\n";
+    // crossing_over_probability
+    cout << "\nБудете ли вводить вероятность скрещивания (1 - да, 2 - нет)? Не рекомендуется менять в случае, если программа выполняется достаточно быстро.\n- ";
+    cin >> choice;
+    cin.ignore(10000, '\n');
+    if (choice == 1)
+    {
+        do
+        {
+            cout << "Введите вероятность скрещивания [0,1;1,0]:\n- ";
+            getline(cin, input);
+            Consts::crossing_over_probability = stod(input);
+            if (Consts::crossing_over_probability < 0.1 || Consts::crossing_over_probability > 1.0)
+                cout << "Ошибка! Значение должно быть в диапазоне [0,1;1,0]\n";
+        } while (Consts::crossing_over_probability < 0.1 || Consts::crossing_over_probability > 1.0);
+    }
+    else cout << "Оставлено значение по умолчанию: " << Consts::crossing_over_probability << "\n";
+    // mutation_probability
+    cout << "\nБудете ли вводить вероятность мутации (1 - да, 2 - нет)? Не рекомендуется менять в случае, если программа выполняется достаточно быстро.\n- ";
+    cin >> choice;
+    cin.ignore(10000, '\n');
+    if (choice == 1)
+    {
+        do
+        {
+            cout << "Введите вероятность мутации [0,1;1,0]:\n- ";
+            getline(cin, input);
+            Consts::mutation_probability = stod(input);
+            if (Consts::mutation_probability < 0.1 || Consts::mutation_probability > 1.0)
+                cout << "Ошибка! Значение должно быть в диапазоне [001;1,0]\n";
+        } while (Consts::mutation_probability < 0.1 || Consts::mutation_probability > 1.0);
+    }
+    else cout << "Оставлено значение по умолчанию: " << Consts::mutation_probability << "\n";
+    // generation_number
+    cout << "\nБудете ли вводить количество поколений (1 - да, 2 - нет)?\n- ";
+    cin >> choice;
+    cin.ignore(10000, '\n');
+    if (choice == 1)
+    {
+        do
+        {
+            cout << "Введите количество поколений [10;1000]:\n- ";
+            getline(cin, input);
+            Consts::generation_number = stoi(input);
+            if (Consts::generation_number < 10 || Consts::generation_number > 1000)
+                cout << "Ошибка! Значение должно быть в диапазоне [10;1000]\n";
+        } while (Consts::generation_number < 10 || Consts::generation_number > 1000);
+    }
+    else cout << "Оставлено значение по умолчанию: " << Consts::generation_number << "\n";
+}
+//Функции генерации начальной популяции II(В, С)
+void Shotgun_generation(vector<Specimen> &current_gen)
+{
+	for (int i = 0, x; i < Consts::population_size; i++)
+	{
+		x = rand() % Consts::x_value_number;
+        current_gen[i].value = Function(x);
+		for (int j = 0; j < Consts::chromosome_length; j++, x /= 2)
+		{
+            current_gen[i].chromosome[Consts::chromosome_length - j - 1] = x % 2;
+		}
+	}
+}
+void Focusing_generation(vector<Specimen> &current_gen)
+{
+    const int t = Consts::x_value_number - 2;
+    for (int i = 0, x; i < Consts::population_size; i++)
+    {
+        x = rand() % t + 1;//Выбираем среди всех, кроме крайних двух
+        current_gen[i].value = Function(x);
+        for (int j = 0; j < Consts::chromosome_length; j++, x /= 2)
+        {
+            current_gen[i].chromosome[Consts::chromosome_length - j - 1] = x % 2;
+        }
+    }
+}
+//Функции селекции III(А, B)
+vector<pair<int, int>> Random_selection()
+{
+    vector<pair<int, int>> pairs_selected(Consts::selection_pair, make_pair(-1, -1));
+    for (int i = 0; i < Consts::selection_pair; i++)
+    {
+        int first_memb = rand() % Consts::population_size,
+            second_memb = rand() % Consts::population_size;
+        if (first_memb == second_memb)
+        {//Выбран один и тот же родитель
+            if (second_memb == 0) second_memb++;
+            else second_memb--;
+        }
+        pairs_selected[i].first = first_memb;
+        pairs_selected[i].second = second_memb;
+    }
+    return pairs_selected;
+}
+vector<pair<int, int>> Scaling_selection(vector<Specimen>& current_gen)
+{
+    vector<pair<int, int>> pairs_selected(Consts::selection_pair, make_pair(-1, -1));
+    //сортировка
+    for (int i = 0; i < Consts::population_size - 1; i++)
+        for (int j = 0; j < Consts::population_size - i - 1; j++)
+            if (current_gen[j].value < current_gen[j + 1].value)
+            {
+                swap(current_gen[j].value, current_gen[j + 1].value);
+                swap(current_gen[j].chromosome, current_gen[j + 1].chromosome);
+            }
+    //Выбор вероятности согласно "топу", используем линейную функцию
+    vector<double> probabilities(Consts::population_size, 0.0);
+    for (int i = 0; i < Consts::population_size; i++)
+        probabilities[i] = (double) (2 * (Consts::population_size - i)) / (Consts::population_size * (Consts::population_size + 1));
+    for (int i = 1; i < Consts::population_size; i++)
+        probabilities[i] += probabilities[i - 1];
+    probabilities[Consts::population_size - 1] = 1.0;
+    //Сама генерация пар, выбираем select_pair пар
+    int i = 0;
+    while (i < Consts::selection_pair)
+    {
+        double x = (double)(rand() % 100) / 100,
+            y = (double)(rand() % 100) / 100;
+        int first_memb = -1, 
+            second_memb = -1;
+        for (int j = 0; j < Consts::population_size; j++)
+        {
+            if (first_memb == -1 && x <= probabilities[j]) first_memb = j;
+            if (second_memb == -1 && y <= probabilities[j]) second_memb = j;
+        }
+        if (first_memb == second_memb)
+        {//Выбран один и тот же родитель
+            if (second_memb == 0) second_memb++;
+            else second_memb--;
+        }
+        pairs_selected[i].first = first_memb;
+        pairs_selected[i].second = second_memb;
+        i++;
+    }
+    return pairs_selected;
+}
+//Функции кроссинговера IV(A, B, L, M)
+void One_point_crossing_over(vector<pair<int, int>> parents, const vector<Specimen>& current_gen, vector<Specimen>& new_gen)
+{
+    int cut_points = Consts::chromosome_length - 1;
+    for (int i = 0; i < parents.size(); i++)
+    {
+        double prob = (double)(rand() % 100) / 100;
+        if (prob < Consts::crossing_over_probability)
+        {
+            int cut_place = rand() % cut_points + 1;
+            // Итераторы на начало и конец вектор для "оберзки"
+            vector<short>::const_iterator p1_begin = current_gen[parents[i].first].chromosome.begin();
+            vector<short>::const_iterator p1_end = current_gen[parents[i].first].chromosome.end();
+            vector<short>::const_iterator p2_begin = current_gen[parents[i].second].chromosome.begin();
+            vector<short>::const_iterator p2_end = current_gen[parents[i].second].chromosome.end();
+            // Создание первого потомка
+            vector<short> first_descendant(p1_begin, p1_begin+cut_place);
+            first_descendant.insert(first_descendant.end(), p2_begin + cut_place, p2_end);
+            // Создание второго потомка
+            vector<short> second_descendant(p2_begin, p2_begin + cut_place);
+            second_descendant.insert(second_descendant.end(), p1_begin + cut_place, p1_end);
+            // Находим значение числа в десятичном виде
+            int a = 0, b = 0;
+            for (int k = 0; k < Consts::chromosome_length; k++)
+            {
+                a = a * 2 + first_descendant[k];
+                b = b * 2 + second_descendant[k];
+            }
+            //Проверяем, что потомки в пределах ОДЗ, иначе "умирают"
+            if (a < Consts::x_value_number)
+                new_gen.push_back({ first_descendant, Function(a) });
+            if (b < Consts::x_value_number)
+                new_gen.push_back({ second_descendant, Function(b) });
+        }
+    }
+}
+void Two_point_crossing_over(vector<pair<int, int>> parents, const vector<Specimen>& current_gen, vector<Specimen>& new_gen)
+{
+    int cut_points = Consts::chromosome_length - 1;
+    for (int i = 0; i < parents.size(); i++)
+    {
+        double prob = (double)(rand() % 100) / 100;
+        if (prob < Consts::crossing_over_probability)
+        {
+            // Генерация двух различных точек разреза
+            int cut_place_1 = rand() % cut_points + 1;
+            int cut_place_2 = rand() % cut_points + 1;
+            if (cut_place_1 == cut_place_2)
+            {
+                if (cut_place_2 < cut_points)
+                    cut_place_2++;
+                else
+                    cut_place_1++;
+            }
+            if (cut_place_1 > cut_place_2) swap(cut_place_1, cut_place_2);
+            // Итераторы на начало и конец вектор для "оберзки"
+            vector<short>::const_iterator p1_begin = current_gen[parents[i].first].chromosome.begin();
+            vector<short>::const_iterator p1_end = current_gen[parents[i].first].chromosome.end();
+            vector<short>::const_iterator p2_begin = current_gen[parents[i].second].chromosome.begin();
+            vector<short>::const_iterator p2_end = current_gen[parents[i].second].chromosome.end();
+            // Создание первого потомка
+            vector<short> first_descendant(p1_begin, p1_begin + cut_place_1);
+            first_descendant.insert(first_descendant.end(), p2_begin + cut_place_1, p2_begin + cut_place_2);
+            first_descendant.insert(first_descendant.end(), p1_begin + cut_place_2, p1_end);
+            // Создание второго потомка
+            vector<short> second_descendant(p2_begin, p2_begin + cut_place_1);
+            second_descendant.insert(second_descendant.end(), p1_begin + cut_place_1, p1_begin + cut_place_2);
+            second_descendant.insert(second_descendant.end(), p2_begin + cut_place_2, p2_end);
+            // Находим значение числа в десятичном виде
+            int a = 0, b = 0;
+            for (int k = 0; k < Consts::chromosome_length; k++)
+            {
+                a = a * 2 + first_descendant[k];
+                b = b * 2 + second_descendant[k];
+            }
+            // Проверяем, что потомки в пределах ОДЗ, иначе "умирают"
+            if (a < Consts::x_value_number)
+                new_gen.push_back({ first_descendant, Function(a) });
+            if (b < Consts::x_value_number)
+                new_gen.push_back({ second_descendant, Function(b) });
+        }
+    }
+}
+void Golden_ratio_crossing_over(vector<pair<int, int>> parents, const vector<Specimen>& current_gen, vector<Specimen>& new_gen)
+{
+    int cut_points = Consts::chromosome_length - 1;
+    for (int i = 0; i < parents.size(); i++)
+    {
+        double prob = (double)(rand() % 100) / 100;
+        if (prob < Consts::crossing_over_probability)
+        {
+            int cut_place = round(0.618 * Consts::chromosome_length);
+            // Итераторы на начало и конец вектор для "оберзки"
+            vector<short>::const_iterator p1_begin = current_gen[parents[i].first].chromosome.begin();
+            vector<short>::const_iterator p1_end = current_gen[parents[i].first].chromosome.end();
+            vector<short>::const_iterator p2_begin = current_gen[parents[i].second].chromosome.begin();
+            vector<short>::const_iterator p2_end = current_gen[parents[i].second].chromosome.end();
+            // Создание первого потомка
+            vector<short> first_descendant(p1_begin, p1_begin + cut_place);
+            first_descendant.insert(first_descendant.end(), p2_begin + cut_place, p2_end);
+            // Создание второго потомка
+            vector<short> second_descendant(p2_begin, p2_begin + cut_place);
+            second_descendant.insert(second_descendant.end(), p1_begin + cut_place, p1_end);
+            // Находим значение числа в десятичном виде
+            int a = 0, b = 0;
+            for (int k = 0; k < Consts::chromosome_length; k++)
+            {
+                a = a * 2 + first_descendant[k];
+                b = b * 2 + second_descendant[k];
+            }
+            //Проверяем, что потомки в пределах ОДЗ, иначе "умирают"
+            if (a < Consts::x_value_number)
+                new_gen.push_back({ first_descendant, Function(a) });
+            if (b < Consts::x_value_number)
+                new_gen.push_back({ second_descendant, Function(b) });
+        }
+    }
+}
+void Fibonacci_crossing_over(vector<pair<int, int>> parents, const vector<Specimen>& current_gen, vector<Specimen>& new_gen)
+{
+    // Формируем вектор точек разреза по числам Фибоначчи
+    vector<int> cut_places;
+    int a = 1, b = 1;
+    while (b < Consts::chromosome_length) 
+    {
+        cut_places.push_back(b);
+        int next = a + b;
+        a = b;
+        b = next;
+    }
+    //
+    for (int i = 0; i < parents.size(); i++)
+    {
+        double prob = (double)(rand() % 100) / 100;
+        if (prob < Consts::crossing_over_probability)
+        {
+            // Итераторы на начало и конец вектор для "оберзки"
+            vector<short>::const_iterator p1_begin = current_gen[parents[i].first].chromosome.begin();
+            vector<short>::const_iterator p1_end = current_gen[parents[i].first].chromosome.end();
+            vector<short>::const_iterator p2_begin = current_gen[parents[i].second].chromosome.begin();
+            vector<short>::const_iterator p2_end = current_gen[parents[i].second].chromosome.end();
+            // 
+            vector<short> first_descendant, second_descendant;
+            int segments_number = cut_places.size() + 1;
+            for (int k = 0; k < segments_number; k++)
+            {
+                int start = (k == 0) ? 0 : cut_places[k - 1];
+                int end = (k < cut_places.size()) ? cut_places[k] : Consts::chromosome_length;
+                // Чётный индекс — от первого родителя для первого потомка, от второго - второму; неетное - наоборот
+                if (k % 2 == 0)
+                {
+                    first_descendant.insert(first_descendant.end(), p1_begin + start, p1_begin + end);
+                    second_descendant.insert(second_descendant.end(), p2_begin + start, p2_begin + end);
+                }
+                else
+                {
+                    first_descendant.insert(first_descendant.end(), p2_begin + start, p2_begin + end);
+                    second_descendant.insert(second_descendant.end(), p1_begin + start, p1_begin + end);
+                }
+            }
+            // Находим значение числа в десятичном виде
+            int a = 0, b = 0;
+            for (int k = 0; k < Consts::chromosome_length; k++)
+            {
+                a = a * 2 + first_descendant[k];
+                b = b * 2 + second_descendant[k];
+            }
+            //Проверяем, что потомки в пределах ОДЗ, иначе "умирают"
+            if (a < Consts::x_value_number)
+                new_gen.push_back({ first_descendant, Function(a) });
+            if (b < Consts::x_value_number)
+                new_gen.push_back({ second_descendant, Function(b) });
+        }
+    }
+}
+//Функции мутации
+void Single_point_mutation(vector<Specimen>& new_gen)
+{
+    int i = 0;
+    while (i < new_gen.size())
+    {
+        double prob = (double)(rand() % 100) / 100;
+        if (prob < Consts::mutation_probability)
+        {
+            int ind = rand() % (Consts::chromosome_length - 1) + 1;
+            swap(new_gen[i].chromosome[ind - 1], new_gen[i].chromosome[ind]);
+            //
+            int a = 0;
+            for (int k = 0; k < Consts::chromosome_length; k++)
+                a = a * 2 + new_gen[i].chromosome[k];
+            if (a >= Consts::x_value_number)
+            {
+                new_gen.erase(new_gen.begin() + i);
+                continue;
+            }
+            else new_gen[i].value = Function(a);
+        }
+        i++;
+    }
+}
+void Transposition(vector<Specimen>& new_gen)
+{
+    int i = 0;
+    while (i < new_gen.size())
+    {
+        double prob = (double)(rand() % 100) / 100.0;
+        if (prob < Consts::mutation_probability)
+        {
+            // Две случайные точки разреза включая края
+            int cut_place_1 = rand() % (Consts::chromosome_length + 1);
+            int cut_place_2 = rand() % (Consts::chromosome_length + 1);
+            if (cut_place_1 == cut_place_2)
+            {//Если совпали, то перемести один из них на 2 позиции
+                if (cut_place_2 < (double) Consts::chromosome_length / 2) cut_place_2 += 2;
+                else cut_place_2 -= 2;
+            }
+            int left = min(cut_place_1, cut_place_2); //_10_1
+            int right = max(cut_place_1, cut_place_2);   // участок [left, right)
+            //Определяем, будем ли пеемещать элемент и куда
+            int insert_pos = -1;
+            // Перемещаем c 50% вероятностью, если участок не охватывает всю хромосому
+            if (!(left == 0 && right == Consts::chromosome_length) && ((rand() % 100) / 100.0)<0.5)
+            {// (0 .. left) и (right .. Consts::chromosome_length)
+                int left_cnt = left + 1;
+                int right_cnt = Consts::chromosome_length - right + 1;
+                int total = left_cnt + right_cnt;
+                int choice = rand() % total;
+                if (choice < left_cnt)
+                    insert_pos = choice;
+                else
+                    insert_pos = right + (choice - left_cnt);// 111 _ 56555 _ 0
+            }
+            // Строим новую хромосому
+            if (insert_pos == -1)
+            {
+                reverse(new_gen[i].chromosome.begin() + left, new_gen[i].chromosome.begin() + right);
+            }
+            else
+            {
+                int l_cut = Consts::chromosome_length - right;
+                vector<short>::reverse_iterator ng_rbegin = new_gen[i].chromosome.rbegin();
+                vector<short> new_segment(ng_rbegin + l_cut, ng_rbegin + l_cut + (right - left));
+                if (insert_pos < left)
+                {
+                    new_gen[i].chromosome.erase(new_gen[i].chromosome.begin() + left, new_gen[i].chromosome.begin() + right);
+                    new_gen[i].chromosome.insert(new_gen[i].chromosome.begin() + insert_pos, new_segment.begin(), new_segment.end());
+                }
+                else
+                {
+                    new_gen[i].chromosome.insert(new_gen[i].chromosome.begin() + insert_pos, new_segment.begin(), new_segment.end());
+                    new_gen[i].chromosome.erase(new_gen[i].chromosome.begin() + left, new_gen[i].chromosome.begin() + right);
+                }
+            }
+
+            // Вычисляем десятичное значение
+            int a = 0;
+            for (int k = 0; k < Consts::chromosome_length; ++k)
+                a = a * 2 + new_gen[i].chromosome[k];
+
+            if (a >= Consts::x_value_number)
+            {
+                new_gen.erase(new_gen.begin() + i);
+                continue;
+            }
+            else
+            {
+                new_gen[i].value = Function(a);
+            }
+        }
+        i++;
+    }
+}
+//Функции отбора
+Specimen Elitist_selection(vector<Specimen>& new_gen)
+{
+    if (new_gen.empty()) return Specimen{};
+    // Ищем потомка с максимальным значением целевой функции
+    int ind_ng = 0;
+    for (int i = 1; i < new_gen.size(); ++i)
+    {
+        if (new_gen[i].value > new_gen[ind_ng].value)
+            ind_ng = i;
+    }
+    Specimen best_offspring = new_gen[ind_ng];
+    new_gen.clear();
+    return best_offspring;
+}
+//
+int main()
+{//I(А) + II(В, С) + III(А, B) + IV(A, B, G, L) + V(В, H) + VI(В) +VII(А)	
+	setlocale(LC_ALL, "Russian");
+	srand(time(0));
+	//
+    SetParams();
+    //
+    vector<Specimen> current_gen(Consts::population_size);
+    vector<Specimen> new_gen;
+    vector<void(*)(vector<Specimen>&)> population_generation = { Shotgun_generation, Focusing_generation };
+    do
+    {
+        int ind = -1;
+        cout << "Введите, какую генерацию использовать: 1 - Стратегия \"дробовика\", 2 - Стратегия фокусировки\n- ";
+        cin >> ind;
+        cin.ignore(10000, '\n');
+        if (ind != 1 && ind != 2)
+        {
+            cout << "Введено неверное значение." << endl;
+            continue;
+        }
+        //cout << ind<<endl;
+        population_generation[ind - 1](current_gen);
+        break;
+    } while (true);
+    vector<int> results;
+    for (int gen = 0; gen < Consts::generation_number; gen++)
+    {
+        // Операторы селекции
+        vector<pair<int, int>> parents = Random_selection();
+        vector<pair<int, int>> scaling_parents = Scaling_selection(current_gen);
+        parents.insert(parents.end(), scaling_parents.begin(), scaling_parents.end());
+        // Операторы кроссинговера
+        One_point_crossing_over(parents, current_gen, new_gen);
+        Two_point_crossing_over(parents, current_gen, new_gen);
+        Golden_ratio_crossing_over(parents, current_gen, new_gen);
+        Fibonacci_crossing_over(parents, current_gen, new_gen);
+        // Операторы мутации
+        Single_point_mutation(new_gen);
+        Transposition(new_gen);
+        // Применяем отбор к потомкам с учетом Микроэволюции
+        Specimen best_descendant = Elitist_selection(new_gen);
+        results.push_back(best_descendant.value);
+        // Ищем предка с наименьшим значением функции для возможной замены
+        int worst_index = 0;
+        for (int i = 1; i < current_gen.size(); i++)
+        {
+            if (current_gen[i].value < current_gen[worst_index].value)
+            {
+                worst_index = i;
+            }
+        }
+        if (best_descendant.value > current_gen[worst_index].value)
+        {
+            current_gen[worst_index] = best_descendant;
+        }
+        //cout << "Генерация " << gen + 1 << " завершилась." << endl;
+    }
+    // After loop: replace last element in results with best value in current_gen
+    int best_index = 0;
+    for (int i = 1; i < current_gen.size(); i++)
+    {
+        if (current_gen[i].value > current_gen[best_index].value)
+        {
+            best_index = i;
+        }
+    }
+    results[results.size() - 1] = current_gen[best_index].value;
+    createPiecewiseCurve(results);
+}

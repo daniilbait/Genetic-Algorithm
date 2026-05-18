@@ -1,0 +1,7 @@
+﻿  Source.cpp
+C:\Users\User\source\repos\Genetic_Algorithm\Source.cpp(13,47): warning C4244: инициализация: преобразование "double" в "int", возможна потеря данных
+C:\Users\User\source\repos\Genetic_Algorithm\Source.cpp(147,23): warning C4244: return: преобразование "double" в "int", возможна потеря данных
+C:\Users\User\source\repos\Genetic_Algorithm\Source.cpp(396,27): warning C4244: инициализация: преобразование "double" в "int", возможна потеря данных
+C:\Users\User\source\repos\Genetic_Algorithm\Source.cpp(448,33): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
+C:\Users\User\source\repos\Genetic_Algorithm\Source.cpp(596,12): warning C4244: аргумент: преобразование "time_t" в "unsigned int", возможна потеря данных
+  Genetic_Algorithm.vcxproj -> C:\Users\User\source\repos\Genetic_Algorithm\x64\Debug\Genetic_Algorithm.exe
